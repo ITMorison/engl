@@ -164,7 +164,7 @@ const WelcomeScreen = ({ onStart }) => (
   </div>
 );
 
-const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestionIndex, examTime, transcript, formatTime, error, isAiMuted, toggleAiMute }) => {
+const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestionIndex, examTime, transcript, formatTime, error, isAiMuted, toggleAiMute, audioStatus, recordedSize }) => {
   const [heights, setHeights] = useState(() => Array.from({ length: 16 }, () => 6));
 
   useEffect(() => {
@@ -221,10 +221,16 @@ const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestio
         <div className="flex items-center justify-between text-xs text-indigo-400 mb-2">
           <span>YOUR LIVE TRANSCRIPT (STT)</span>
           {isRecording && <span className="text-pink-400 animate-pulse font-semibold">● Recording Audio</span>}
+          {audioStatus === 'uploading' && <span className="text-amber-400 animate-pulse font-semibold">● Uploading...</span>}
+          {audioStatus === 'transcribing' && <span className="text-sky-400 animate-pulse font-semibold">● Transcribing...</span>}
+          {audioStatus === 'evaluating' && <span className="text-purple-400 animate-pulse font-semibold">● Evaluating...</span>}
         </div>
         <p className="text-sm text-slate-200 italic leading-relaxed">
           {transcript || "Click microphone below and start speaking your answer..."}
         </p>
+        {recordedSize > 0 && (
+          <p className="text-[11px] text-indigo-400/70 mt-1">Recorded: {(recordedSize / 1024).toFixed(1)} KB</p>
+        )}
       </div>
 
       {error && (
@@ -413,6 +419,9 @@ export default function App() {
   const [error, setError] = useState('');
   const [results, setResults] = useState(null);
   const [isAiMuted, setIsAiMuted] = useState(false);
+  const [recordedSize, setRecordedSize] = useState(0);
+  const [audioStatus, setAudioStatus] = useState('idle'); // idle | recording | uploading | transcribing | evaluating | done
+  const shouldFinishRef = useRef(false);
   const prevQuestionIndexRef = useRef(currentQuestionIndex);
   const prevResultsRef = useRef(results);
 
@@ -456,61 +465,90 @@ export default function App() {
     return () => clearInterval(timerRef.current);
   }, [isRecording]);
 
-  const uploadAudio = async (audioBlob) => {
+  const uploadAudio = async (audioBlob, shouldFinish = false) => {
     setIsLoading(true);
     setError('');
+    setAudioStatus('uploading');
     try {
       const formData = new FormData();
       formData.append('file', audioBlob, 'audio.webm');
       formData.append('question_text', QUESTIONS[currentQuestionIndex]);
       formData.append('target_level', studentLevel);
 
+      setAudioStatus('transcribing');
       const response = await fetch('/api/evaluate-speech', {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+        const text = await response.text();
+        throw new Error(`Server responded with ${response.status}: ${text}`);
       }
 
+      setAudioStatus('evaluating');
       const data = await response.json();
       setResults(data);
       setTranscript(data.transcript || '');
-      setCurrentStep('results');
+      setAudioStatus('done');
+      if (shouldFinish) {
+        setCurrentStep('results');
+      }
     } catch (err) {
       console.error('Upload failed:', err);
       setError(err.message || 'Failed to connect to evaluation server. Please try again.');
+      setAudioStatus('idle');
     } finally {
       setIsLoading(false);
+      setRecordedSize(0);
     }
   };
 
   const startRecording = async () => {
     setError('');
+    setAudioStatus('recording');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        } 
+      });
+      
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('')) {
+          mimeType = '';
+        }
+      }
+      
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      setRecordedSize(0);
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
+          setRecordedSize((prev) => prev + event.data.size);
         }
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
         stream.getTracks().forEach((track) => track.stop());
-        uploadAudio(audioBlob);
+        uploadAudio(audioBlob, shouldFinishRef.current);
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(1000);
       setIsRecording(true);
     } catch (err) {
       console.error('Microphone access denied:', err);
       setError('Microphone access denied. Please allow microphone permissions and try again.');
+      setAudioStatus('idle');
     }
   };
 
@@ -540,13 +578,14 @@ export default function App() {
 
   const nextQuestion = async () => {
     if (isRecording) {
+      shouldFinishRef.current = currentQuestionIndex >= QUESTIONS.length - 1;
       stopRecording();
+    } else if (currentQuestionIndex >= QUESTIONS.length - 1) {
+      setCurrentStep('results');
     }
     if (currentQuestionIndex < QUESTIONS.length - 1) {
       setCurrentQuestionIndex((prev) => prev + 1);
       setTranscript('');
-    } else {
-      setCurrentStep('results');
     }
   };
 
@@ -573,6 +612,8 @@ export default function App() {
             error={error}
             isAiMuted={isAiMuted}
             toggleAiMute={() => setIsAiMuted((prev) => !prev)}
+            audioStatus={audioStatus}
+            recordedSize={recordedSize}
           />
         )}
         {currentStep === 'results' && (
