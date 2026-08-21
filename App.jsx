@@ -166,10 +166,13 @@ const WelcomeScreen = ({ onStart }) => (
 
 const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestionIndex, examTime, transcript, formatTime, error, isAiMuted, toggleAiMute, audioStatus, recordedSize }) => {
   const [heights, setHeights] = useState(() => Array.from({ length: 16 }, () => 6));
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
     if (!isRecording) {
       setHeights(Array.from({ length: 16 }, () => 6));
+      setLiveTranscript('');
       return;
     }
     const id = setInterval(() => {
@@ -177,6 +180,56 @@ const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestio
     }, 120);
     return () => clearInterval(id);
   }, [isRecording]);
+
+  useEffect(() => {
+    if (!isRecording) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      let final = '';
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          final += t + ' ';
+        } else {
+          interim += t;
+        }
+      }
+      if (final) {
+        setLiveTranscript((prev) => prev + final);
+      } else if (interim) {
+        setLiveTranscript((prev) => prev + interim);
+      }
+    };
+
+    recognition.onerror = () => {
+      // silently ignore speech recognition errors
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+
+    return () => {
+      recognition.stop();
+      recognitionRef.current = null;
+    };
+  }, [isRecording]);
+
+  const displayTranscript = transcript || liveTranscript || "Click microphone below and start speaking your answer...";
 
   return (
     <div className="space-y-6">
@@ -226,7 +279,7 @@ const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestio
           {audioStatus === 'evaluating' && <span className="text-purple-400 animate-pulse font-semibold">● Evaluating...</span>}
         </div>
         <p className="text-sm text-slate-200 italic leading-relaxed">
-          {transcript || "Click microphone below and start speaking your answer..."}
+          {displayTranscript}
         </p>
         {recordedSize > 0 && (
           <p className="text-[11px] text-indigo-400/70 mt-1">Recorded: {(recordedSize / 1024).toFixed(1)} KB</p>
@@ -278,7 +331,7 @@ const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestio
   );
 };
 
-const ResultsScreen = ({ results, onStart, isLoading, isAiMuted, toggleAiMute }) => {
+const ResultsScreen = ({ results, onStart, isLoading, isAiMuted, toggleAiMute, error }) => {
   const [saved, setSaved] = useState(false);
 
   if (isLoading) {
@@ -286,6 +339,31 @@ const ResultsScreen = ({ results, onStart, isLoading, isAiMuted, toggleAiMute })
       <div className="space-y-6 flex flex-col items-center justify-center py-20">
         <Loader2 className="w-12 h-12 animate-spin text-pink-400" />
         <p className="text-indigo-200 text-sm">Analyzing your speech with AI...</p>
+      </div>
+    );
+  }
+
+  if (!results && !error) {
+    return (
+      <div className="space-y-6 flex flex-col items-center justify-center py-20">
+        <p className="text-indigo-200 text-sm">No results yet. Please complete the exam first.</p>
+        <button onClick={onStart} className="px-6 py-3 rounded-xl font-bold text-white" style={{ backgroundColor: 'rgb(75, 59, 219)' }}>
+          Back to Exam
+        </button>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6 flex flex-col items-center justify-center py-20">
+        <div className="p-4 rounded-2xl border border-red-500/40 flex items-center space-x-3" style={{ backgroundColor: 'rgba(239, 68, 88, 0.15)' }}>
+          <AlertCircle className="w-5 h-5 text-red-400" />
+          <p className="text-sm text-red-200">{error}</p>
+        </div>
+        <button onClick={onStart} className="px-6 py-3 rounded-xl font-bold text-white" style={{ backgroundColor: 'rgb(75, 59, 219)' }}>
+          Retake Assessment
+        </button>
       </div>
     );
   }
@@ -574,6 +652,8 @@ export default function App() {
     setTranscript('');
     setResults(null);
     setError('');
+    setAudioStatus('idle');
+    setRecordedSize(0);
   };
 
   const nextQuestion = async () => {
@@ -623,6 +703,7 @@ export default function App() {
             isLoading={isLoading}
             isAiMuted={isAiMuted}
             toggleAiMute={() => setIsAiMuted((prev) => !prev)}
+            error={error}
           />
         )}
       </main>
