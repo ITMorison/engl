@@ -3,6 +3,37 @@ const formidable = require('formidable');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const LLM_API_URL = process.env.LLM_API_URL || 'https://opencode.ai/zen/v1/chat/completions';
+const LLM_MODEL = process.env.LLM_MODEL || 'laguna-s-2.1-free';
+const LLM_API_KEY = process.env.LLM_API_KEY || '';
+
+const callLLM = async (prompt) => {
+  const response = await fetch(LLM_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${LLM_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: LLM_MODEL,
+      messages: [
+        { role: 'system', content: 'You are an expert English speaking examiner. Return ONLY valid JSON. No markdown, no code blocks, no explanations.' },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.3,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`LLM API responded with ${response.status}: ${text}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '{}';
+  return JSON.parse(content);
+};
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -51,18 +82,7 @@ Return ONLY valid JSON matching this exact structure:
   ]
 }`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: 'You are an expert English speaking examiner. Return ONLY valid JSON. No markdown, no code blocks, no explanations.' },
-        { role: 'user', content: evaluationPrompt }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.3,
-    });
-
-    const content = completion.choices[0]?.message?.content || '{}';
-    const result = JSON.parse(content);
+    const result = await callLLM(evaluationPrompt);
 
     return res.status(200).json(result);
   } catch (error) {

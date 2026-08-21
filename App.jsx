@@ -164,7 +164,7 @@ const WelcomeScreen = ({ onStart }) => (
   </div>
 );
 
-const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestionIndex, examTime, transcript, formatTime, error }) => {
+const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestionIndex, examTime, transcript, formatTime, error, isAiMuted, toggleAiMute }) => {
   const [heights, setHeights] = useState(() => Array.from({ length: 16 }, () => 6));
 
   useEffect(() => {
@@ -236,6 +236,17 @@ const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestio
 
       <div className="flex items-center justify-between gap-4 pt-2">
         <button
+          onClick={toggleAiMute}
+          className={`py-4 px-4 rounded-2xl font-bold flex items-center justify-center transition-all shadow-lg border ${
+            isAiMuted ? 'text-gray-300 border-gray-600' : 'text-white border-indigo-400'
+          }`}
+          style={{ backgroundColor: 'rgba(30, 24, 68, 0.6)' }}
+          title={isAiMuted ? 'Unmute AI Voice' : 'Mute AI Voice'}
+        >
+          {isAiMuted ? <MicOff className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+        </button>
+
+        <button
           onClick={toggleRecording}
           className={`flex-1 py-4 px-6 rounded-2xl font-bold flex items-center justify-center space-x-3 transition-all shadow-lg ${
             isRecording
@@ -261,7 +272,7 @@ const ExamScreen = ({ isRecording, toggleRecording, nextQuestion, currentQuestio
   );
 };
 
-const ResultsScreen = ({ results, onStart, isLoading }) => {
+const ResultsScreen = ({ results, onStart, isLoading, isAiMuted, toggleAiMute }) => {
   const [saved, setSaved] = useState(false);
 
   if (isLoading) {
@@ -294,6 +305,17 @@ const ResultsScreen = ({ results, onStart, isLoading }) => {
         <p className="text-xs text-indigo-300">Detailed breakdown based on CEFR Framework</p>
 
         <div className="mt-6 flex flex-wrap items-center justify-center gap-6">
+          <button
+            onClick={toggleAiMute}
+            className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${
+              isAiMuted ? 'text-gray-300 border-gray-600' : 'text-white border-indigo-400'
+            }`}
+            style={{ backgroundColor: 'rgba(30, 24, 68, 0.6)' }}
+            title={isAiMuted ? 'Unmute AI Voice' : 'Mute AI Voice'}
+          >
+            {isAiMuted ? <MicOff className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+
           <div className="px-6 py-4 rounded-2xl border text-center" style={{ borderColor: 'rgba(238, 59, 137, 0.3)', background: 'rgba(238, 59, 137, 0.15)' }}>
             <span className="text-xs font-semibold uppercase tracking-wider block mb-1" style={{ color: 'rgb(238, 59, 137)' }}>Estimated Level</span>
             <span className="text-3xl font-black text-white">{results.estimated_level}</span>
@@ -390,10 +412,38 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [results, setResults] = useState(null);
+  const [isAiMuted, setIsAiMuted] = useState(false);
+  const prevQuestionIndexRef = useRef(currentQuestionIndex);
+  const prevResultsRef = useRef(results);
 
   const timerRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  const speak = (text) => {
+    if (!window.speechSynthesis || isAiMuted) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    if (currentStep === 'exam' && currentQuestionIndex !== prevQuestionIndexRef.current) {
+      prevQuestionIndexRef.current = currentQuestionIndex;
+      speak(QUESTIONS[currentQuestionIndex]);
+    }
+  }, [currentStep, currentQuestionIndex, isAiMuted]);
+
+  useEffect(() => {
+    if (currentStep === 'results' && results && results !== prevResultsRef.current) {
+      prevResultsRef.current = results;
+      const text = `Exam completed. Your estimated level is ${results.estimated_level}. Strongest skill: ${results.strongest_skill}. Biggest weakness: ${results.biggest_weakness}.`;
+      speak(text);
+    }
+  }, [currentStep, results, isAiMuted]);
 
   useEffect(() => {
     if (isRecording) {
@@ -521,6 +571,8 @@ export default function App() {
             transcript={transcript}
             formatTime={formatTime}
             error={error}
+            isAiMuted={isAiMuted}
+            toggleAiMute={() => setIsAiMuted((prev) => !prev)}
           />
         )}
         {currentStep === 'results' && (
@@ -528,6 +580,8 @@ export default function App() {
             results={results}
             onStart={startExam}
             isLoading={isLoading}
+            isAiMuted={isAiMuted}
+            toggleAiMute={() => setIsAiMuted((prev) => !prev)}
           />
         )}
       </main>
