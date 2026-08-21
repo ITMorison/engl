@@ -1,0 +1,9 @@
+{
+  "name": "speakai-examiner",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "openai": "^4.68.0",
+    "formidable": "^3.5.0"
+  }
+}

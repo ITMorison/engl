@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpeakAI Examiner</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'violet-deep': 'rgb(51, 41, 140)',
+            'indigo-electric': 'rgb(75, 59, 219)',
+            'magenta-pink': 'rgb(238, 59, 137)',
+            'coral-red': 'rgb(239, 68, 88)',
+            'sunset-gold': 'rgb(249, 182, 53)',
+            'lavender': 'rgb(215, 215, 248)',
+            'cream': 'rgb(239, 242, 219)',
+            'soft-blue': 'rgb(135, 172, 240)',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    }
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: rgb(239, 242, 219); }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 20px rgba(238,59,137,0.4), 0 0 60px rgba(75,59,219,0.2); }
+      50% { box-shadow: 0 0 40px rgba(238,59,137,0.7), 0 0 80px rgba(75,59,219,0.4); }
+    }
+    @keyframes orb-float {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-12px) scale(1.05); }
+    }
+    @keyframes wave-bar {
+      0%, 100% { height: 20%; }
+      50% { height: 100%; }
+    }
+    .orb-glow { animation: pulse-glow 3s ease-in-out infinite; }
+    .orb-float { animation: orb-float 4s ease-in-out infinite; }
+    .wave-bar { animation: wave-bar 1.2s ease-in-out infinite; }
+    .glass { background: rgba(255,255,255,0.65); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.4); }
+    .glass-dark { background: rgba(51,41,140,0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.15); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ─── Icons (Lucide-style inline SVGs) ─────────────────────────
+    const Icons = {
+      Mic: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+      ),
+      MicOff: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+      ),
+      Play: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      ),
+      Square: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+      ),
+      Download: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+      ),
+      User: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      ),
+      Sparkles: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>
+      ),
+      TrendingUp: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      ),
+      Target: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+      ),
+      ChevronDown: ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m6 9 6 6 6-6"/></svg>
+      ),
+    };
+
+    // ─── Mock Data ────────────────────────────────────────────────
+    const SKILL_METRICS = [
+      { name: 'Fluency', score: 72, icon: '🗣️' },
+      { name: 'Vocabulary', score: 85, icon: '📚' },
+      { name: 'Grammar', score: 78, icon: '✍️' },
+      { name: 'Pronunciation', score: 80, icon: '🔊' },
+      { name: 'Coherence', score: 75, icon: '🧠' },
+      { name: 'Interaction', score: 82, icon: '💬' },
+    ];
+
+    const AI_PROMPTS = [
+      "Tell me about your favorite travel experience...",
+      "Describe a person who has influenced you significantly.",
+      "What are the advantages and disadvantages of remote work?",
+      "Talk about a time when you had to solve a difficult problem.",
+      "How do you think technology will change education in the future?",
+    ];
+
+    // ─── Animated Avatar Orb ─────────────────────────────────────
+    const AnimatedOrb = ({ size = 180, color1 = 'rgb(75, 59, 219)', color2 = 'rgb(238, 59, 137)' }) => (
+      <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+        <div
+          className="absolute rounded-full orb-float orb-glow"
+          style={{
+            width: '70%',
+            height: '70%',
+            background: `linear-gradient(135deg, ${color1}, ${color2})`,
+            filter: 'blur(2px)',
+          }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: '50%',
+            height: '50%',
+            background: `linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.3))`,
+            backdropFilter: 'blur(4px)',
+          }}
+        />
+        <Icons.Sparkles className="absolute text-white drop-shadow-lg" style={{ fontSize: size * 0.25 }} />
+      </div>
+    );
+
+    // ─── Mic Visualizer ──────────────────────────────────────────
+    const MicVisualizer = ({ isActive }) => {
+      const bars = Array.from({ length: 32 });
+      return (
+        <div className="flex items-end justify-center gap-1 h-24 w-full px-4">
+          {bars.map((_, i) => (
+            <div
+              key={i}
+              className="w-2 rounded-full transition-all duration-300"
+              style={{
+                height: isActive ? `${30 + Math.random() * 70}%` : '15%',
+                background: isActive
+                  ? 'linear-gradient(to top, rgb(75, 59, 219), rgb(238, 59, 137))'
+                  : 'rgb(215, 215, 248)',
+                animation: isActive ? `wave-bar ${0.6 + Math.random() * 0.8}s ease-in-out infinite` : 'none',
+                animationDelay: `${i * 0.05}s`,
+              }}
+            />
+          ))}
+        </div>
+      );
+    };
+
+    // ─── Header ──────────────────────────────────────────────────
+    const Header = ({ currentLevel, setCurrentLevel }) => {
+      const [open, setOpen] = useState(false);
+      return (
+        <header className="glass sticky top-0 z-50 px-6 py-3 flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-electric to-magenta-pink flex items-center justify-center shadow-lg">
+              <Icons.Sparkles className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-violet-deep tracking-tight leading-tight">SpeakAI Examiner</h1>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-magenta-pink bg-magenta-pink/10 px-2 py-0.5 rounded-full">AI Badge</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <button
+                onClick={() => setOpen(!open)}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/60 hover:bg-white/80 text-violet-deep font-medium text-sm border border-white/50 transition"
+              >
+                <span>Level: {currentLevel}</span>
+                <Icons.ChevronDown className="w-4 h-4" />
+              </button>
+              {open && (
+                <div className="absolute right-0 mt-2 w-40 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50">
+                  {['A1', 'A2', 'B1', 'B1+', 'B2', 'C1', 'C2'].map(lv => (
+                    <button
+                      key={lv}
+                      onClick={() => { setCurrentLevel(lv); setOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-violet-deep/5 ${currentLevel === lv ? 'text-magenta-pink font-semibold' : 'text-gray-700'}`}
+                    >
+                      {lv}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-soft-blue to-lavender flex items-center justify-center shadow-md cursor-pointer">
+              <Icons.User className="text-violet-deep w-5 h-5" />
+            </div>
+          </div>
+        </header>
+      );
+    };
+
+    // ─── State A: Start Examination ──────────────────────────────
+    const StartExam = ({ onStart }) => {
+      const criteria = [
+        { label: 'Fluency', icon: '🗣️' },
+        { label: 'Vocabulary', icon: '📚' },
+        { label: 'Grammar', icon: '✍️' },
+        { label: 'Pronunciation', icon: '🔊' },
+        { label: 'Coherence', icon: '🧠' },
+        { label: 'Interaction', icon: '💬' },
+      ];
+      return (
+        <div className="min-h-[calc(100vh-80px)] flex flex-col items-center justify-center px-4 py-12">
+          <div className="max-w-2xl w-full text-center">
+            <div className="mb-8 flex justify-center">
+              <AnimatedOrb size={200} />
+            </div>
+
+            <h2 className="text-4xl md:text-5xl font-extrabold text-violet-deep mb-4 tracking-tight">
+              Ready to Speak?
+            </h2>
+            <p className="text-lg text-gray-600 mb-10 max-w-lg mx-auto leading-relaxed">
+              Our AI examiner will evaluate your speaking skills across 6 key criteria to give you a precise assessment of your English level.
+            </p>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-10">
+              {criteria.map(c => (
+                <div key={c.label} className="glass rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-lg transition-shadow">
+                  <span className="text-2xl">{c.icon}</span>
+                  <span className="text-sm font-semibold text-violet-deep">{c.label}</span>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={onStart}
+              className="group relative inline-flex items-center gap-2 px-8 py-4 rounded-2xl text-white font-bold text-lg shadow-2xl hover:shadow-magenta-pink/40 hover:scale-105 transition-all duration-300"
+              style={{ background: 'linear-gradient(135deg, rgb(75, 59, 219), rgb(238, 59, 137))' }}
+            >
+              <Icons.Play className="w-6 h-6" />
+              Start Exam
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    // ─── State B: Live Dialogue ──────────────────────────────────
+    const LiveExam = ({ onEnd, level }) => {
+      const [isMuted, setIsMuted] = useState(false);
+      const [isRecording, setIsRecording] = useState(true);
+      const [transcript, setTranscript] = useState('');
+      const [currentPrompt, setCurrentPrompt] = useState(AI_PROMPTS[0]);
+      const [promptIndex, setPromptIndex] = useState(0);
+      const [timeLeft, setTimeLeft] = useState(120);
+      const transcriptRef = useRef(null);
+
+      useEffect(() => {
+        if (!isRecording || isMuted) return;
+        const mockPhrases = [
+          "I think traveling opens your mind to new cultures and perspectives.",
+          "Last year I visited Japan and it completely changed how I see the world.",
+          "The food was amazing and the people were incredibly welcoming.",
+          "I would love to go back and explore more of the countryside.",
+          "Traveling also teaches you patience and adaptability in unexpected situations.",
+        ];
+        let phraseIdx = 0;
+        const interval = setInterval(() => {
+          if (phraseIdx < mockPhrases.length) {
+            setTranscript(prev => prev + (prev ? ' ' : '') + mockPhrases[phraseIdx]);
+            phraseIdx++;
+          }
+        }, 3000);
+        return () => clearInterval(interval);
+      }, [isRecording, isMuted]);
+
+      useEffect(() => {
+        if (timeLeft <= 0) return;
+        const timer = setInterval(() => {
+          setTimeLeft(t => t - 1);
+        }, 1000);
+        return () => clearInterval(timer);
+      }, [timeLeft]);
+
+      useEffect(() => {
+        if (transcriptRef.current) {
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+        }
+      }, [transcript]);
+
+      const handleNextPrompt = () => {
+        const next = (promptIndex + 1) % AI_PROMPTS.length;
+        setPromptIndex(next);
+        setCurrentPrompt(AI_PROMPTS[next]);
+      };
+
+      const formatTime = (s) => {
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return `${m}:${sec.toString().padStart(2, '0')}`;
+      };
+
+      return (
+        <div className="min-h-[calc(100vh-80px)] flex flex-col items-center px-4 py-6">
+          <div className="max-w-3xl w-full">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-deep to-indigo-electric flex items-center justify-center shadow-lg">
+                  <Icons.Sparkles className="text-white w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 font-medium">AI Examiner</p>
+                  <p className="text-xs text-gray-400">Speaking • {level}</p>
+                </div>
+              </div>
+              <div className="glass-dark text-white px-4 py-2 rounded-xl font-mono text-lg">
+                {formatTime(timeLeft)}
+              </div>
+            </div>
+
+            <div className="glass rounded-3xl p-6 mb-6 shadow-xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-2 h-2 rounded-full bg-coral-red animate-pulse" />
+                <span className="text-sm font-semibold text-gray-600 uppercase tracking-wider">AI Prompt</span>
+              </div>
+              <p className="text-xl font-medium text-violet-deep leading-relaxed mb-4">
+                "{currentPrompt}"
+              </p>
+              <button
+                onClick={handleNextPrompt}
+                className="text-sm font-medium text-magenta-pink hover:text-indigo-electric transition-colors"
+              >
+                Skip to next prompt →
+              </button>
+            </div>
+
+            <div className="glass rounded-3xl p-6 mb-6 shadow-xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`w-2 h-2 rounded-full ${isRecording && !isMuted ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`} />
+                <span className="text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                  {isRecording && !isMuted ? 'Listening...' : 'Paused'}
+                </span>
+              </div>
+              <MicVisualizer isActive={isRecording && !isMuted} />
+            </div>
+
+            <div className="glass rounded-3xl p-6 mb-6 shadow-xl">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Live Transcript</h3>
+              <div
+                ref={transcriptRef}
+                className="h-40 overflow-y-auto text-violet-deep leading-relaxed text-lg"
+              >
+                {transcript || <span className="text-gray-400 italic">Your speech will appear here...</span>}
+                {isRecording && !isMuted && <span className="inline-block w-2 h-5 bg-magenta-pink ml-1 animate-pulse align-middle" />}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-4">
+              <button
+                onClick={() => setIsMuted(!isMuted)}
+                className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110 ${
+                  isMuted ? 'bg-coral-red text-white' : 'bg-white text-violet-deep border-2 border-violet-deep/20'
+                }`}
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? <Icons.MicOff className="w-7 h-7" /> : <Icons.Mic className="w-7 h-7" />}
+              </button>
+              <button
+                onClick={onEnd}
+                className="px-8 py-4 rounded-2xl bg-gradient-to-r from-coral-red to-magenta-pink text-white font-bold shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-300"
+              >
+                End Session
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ─── State C: Feedback Dashboard ─────────────────────────────
+    const FeedbackDashboard = ({ onRestart, level }) => {
+      const [saved, setSaved] = useState(false);
+
+      const handleExport = () => {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      };
+
+      return (
+        <div className="min-h-[calc(100vh-80px)] flex flex-col items-center px-4 py-8">
+          <div className="max-w-5xl w-full">
+            <div className="text-center mb-10">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-indigo-electric/10 to-magenta-pink/10 text-indigo-electric font-semibold text-sm mb-4">
+                <Icons.TrendingUp className="w-4 h-4" />
+                Assessment Complete
+              </div>
+              <h2 className="text-4xl font-extrabold text-violet-deep mb-2">Your Speaking Report</h2>
+              <p className="text-gray-500">Level {level} • {new Date().toLocaleDateString()}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="md:col-span-1 glass rounded-3xl p-6 shadow-xl flex flex-col items-center justify-center text-center">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-electric to-magenta-pink flex items-center justify-center mb-4 shadow-lg">
+                  <span className="text-3xl font-bold text-white">{level}</span>
+                </div>
+                <h3 className="text-lg font-bold text-violet-deep mb-1">Estimated Level</h3>
+                <p className="text-sm text-gray-500">Based on 6 criteria</p>
+              </div>
+
+              <div className="glass rounded-3xl p-6 shadow-xl">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sunset-gold to-coral-red flex items-center justify-center">
+                    <span className="text-lg">🏆</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-violet-deep">Strongest Skill</h3>
+                    <p className="text-sm text-gray-500">Vocabulary</p>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200/50 rounded-full h-3 mb-2">
+                  <div className="h-3 rounded-full bg-gradient-to-r from-sunset-gold to-coral-red" style={{ width: '85%' }} />
+                </div>
+                <p className="text-xs text-gray-500 text-right">85% score</p>
+              </div>
+
+              <div className="glass rounded-3xl p-6 shadow-xl">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-soft-blue to-lavender flex items-center justify-center">
+                    <span className="text-lg">📈</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-violet-deep">Biggest Weakness</h3>
+                    <p className="text-sm text-gray-500">Hesitation</p>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200/50 rounded-full h-3 mb-2">
+                  <div className="h-3 rounded-full bg-gradient-to-r from-soft-blue to-lavender" style={{ width: '60%' }} />
+                </div>
+                <p className="text-xs text-gray-500 text-right">60% score</p>
+              </div>
+            </div>
+
+            <div className="glass rounded-3xl p-8 shadow-xl mb-8">
+              <h3 className="text-xl font-bold text-violet-deep mb-6 flex items-center gap-2">
+                <Icons.Target className="w-5 h-5 text-magenta-pink" />
+                Skill Metrics
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+                {SKILL_METRICS.map(skill => (
+                  <div key={skill.name} className="flex items-center gap-4">
+                    <span className="text-xl w-8 text-center">{skill.icon}</span>
+                    <div className="flex-1">
+                      <div className="flex justify-between mb-1">
+                        <span className="text-sm font-semibold text-gray-700">{skill.name}</span>
+                        <span className="text-sm font-bold text-violet-deep">{skill.score}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200/50 rounded-full h-2.5">
+                        <div
+                          className="h-2.5 rounded-full transition-all duration-1000"
+                          style={{
+                            width: `${skill.score}%`,
+                            background: skill.score >= 80
+                              ? 'linear-gradient(90deg, rgb(75, 59, 219), rgb(238, 59, 137))'
+                              : skill.score >= 70
+                              ? 'linear-gradient(90deg, rgb(135, 172, 240), rgb(215, 215, 248))'
+                              : 'linear-gradient(90deg, rgb(249, 182, 53), rgb(239, 68, 88))',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <div className="glass rounded-3xl p-6 shadow-xl border-l-4 border-sunset-gold">
+                <h3 className="font-bold text-violet-deep mb-2 flex items-center gap-2">
+                  <Icons.Target className="w-5 h-5 text-sunset-gold" />
+                  Next Mission
+                </h3>
+                <p className="text-gray-600 mb-4">Practice speaking for 60 seconds without filler words like "um", "uh", or "like".</p>
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="w-2 h-2 rounded-full bg-sunset-gold" />
+                  Estimated time: 5 min
+                </div>
+              </div>
+
+              <div className="glass rounded-3xl p-6 shadow-xl border-l-4 border-magenta-pink">
+                <h3 className="font-bold text-violet-deep mb-2 flex items-center gap-2">
+                  <Icons.Sparkles className="w-5 h-5 text-magenta-pink" />
+                  AI Recommendation
+                </h3>
+                <p className="text-gray-600 mb-4">Focus on reducing hesitation pauses. Try recording yourself daily and aim for smoother transitions between ideas.</p>
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="w-2 h-2 rounded-full bg-magenta-pink" />
+                  Priority: High
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <button
+                onClick={handleExport}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-white text-violet-deep font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 border border-gray-100"
+              >
+                <Icons.Download className="w-5 h-5" />
+                {saved ? 'Saved!' : 'Export Results'}
+              </button>
+              <button
+                onClick={onRestart}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-electric to-magenta-pink text-white font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300"
+              >
+                <Icons.Play className="w-5 h-5" />
+                New Examination
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ─── Main App ────────────────────────────────────────────────
+    const App = () => {
+      const [view, setView] = useState('start');
+      const [level, setLevel] = useState('B1+');
+
+      const renderView = () => {
+        switch (view) {
+          case 'start':
+            return <StartExam onStart={() => setView('live')} />;
+          case 'live':
+            return <LiveExam onEnd={() => setView('feedback')} level={level} />;
+          case 'feedback':
+            return <FeedbackDashboard onRestart={() => setView('start')} level={level} />;
+          default:
+            return null;
+        }
+      };
+
+      return (
+        <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, rgb(239, 242, 219), rgb(215, 215, 248))' }}>
+          <Header currentLevel={level} setCurrentLevel={setLevel} />
+          <main className="transition-all duration-500">
+            {renderView()}
+          </main>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
