@@ -59,15 +59,33 @@ module.exports = async function handler(req, res) {
 
     const transcript = transcription.text || '';
 
+    const phoneticPrompt = `Convert the following English text to IPA (International Phonetic Alphabet) phonemic transcription. Provide ONLY the phoneme string using standard IPA symbols, no explanations, no quotes, no extra text.
+Text: "${transcript.replace(/"/g, '')}"`;
+
+    let phoneticTranscription = transcript;
+    try {
+      const phoneticResult = await callLLM(phoneticPrompt);
+      if (typeof phoneticResult === 'string') {
+        phoneticTranscription = phoneticResult.trim();
+      } else if (phoneticResult && typeof phoneticResult === 'object') {
+        phoneticTranscription = (phoneticResult.ipa || phoneticResult.phonetic || phoneticResult.transcription || transcript).trim();
+      }
+    } catch (e) {
+      console.error('Phonetic transcription error:', e);
+      phoneticTranscription = transcript;
+    }
+
     const evaluationPrompt = `You are an expert English speaking examiner. Evaluate the student's response to the following question.
 
 Question: ${questionText}
 Student's spoken response (transcript): ${transcript}
+Phonetic transcription (IPA): ${phoneticTranscription}
 Target CEFR Level: ${targetLevel}
 
 Return ONLY valid JSON matching this exact structure:
 {
   "transcript": "${transcript.replace(/"/g, '\\"')}",
+  "phonetic_transcription": "${phoneticTranscription.replace(/"/g, '\\"')}",
   "estimated_level": "B1+",
   "strongest_skill": "Vocabulary",
   "biggest_weakness": "Hesitation",

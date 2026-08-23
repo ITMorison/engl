@@ -464,6 +464,13 @@ const ResultsScreen = ({ results, onStart, isLoading, isAiMuted, toggleAiMute, e
         <p className="text-sm text-slate-200 italic leading-relaxed">{results.transcript}</p>
       </div>
 
+      {results.phonetic_transcription && (
+        <div className="p-4 rounded-2xl border border-indigo-900/60" style={{ backgroundColor: 'rgba(15, 12, 35, 0.6)' }}>
+          <h3 className="text-xs font-semibold text-indigo-400 mb-2">PHONETIC TRANSCRIPTION (IPA)</h3>
+          <p className="text-sm text-slate-200 italic leading-relaxed font-mono">{results.phonetic_transcription}</p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between pt-2">
         <button
           onClick={onStart}
@@ -507,14 +514,23 @@ export default function App() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  const speak = (text) => {
-    if (!window.speechSynthesis || isAiMuted) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    window.speechSynthesis.speak(utterance);
+  const speak = async (text) => {
+    if (!text || isAiMuted) return;
+    try {
+      const response = await fetch('/api/text-to-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) return;
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play();
+    } catch (err) {
+      console.error('TTS playback error:', err);
+    }
   };
 
   useEffect(() => {
