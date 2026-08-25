@@ -115,6 +115,52 @@
       "What are the advantages and disadvantages of remote work?",
       "Talk about a time when you had to solve a difficult problem.",
       "How do you think technology will change education in the future?",
+      "Compare living in a big city with living in the countryside. Which do you prefer and why?",
+      "Do you agree or disagree: social media does more harm than good to young people?",
+      "Describe a traditional festival or celebration from your culture. What makes it special?",
+      "How can individuals help reduce climate change in their daily lives?",
+      "What are the main health benefits of regular exercise? Do you think people are aware enough of them?",
+      "If you could start any business with unlimited funding, what would it be and why?",
+      "Describe your ideal job. What skills and qualities would it require?",
+      "Some people say that learning a second language should be mandatory in schools. Do you agree?",
+      "Talk about a book or movie that had a strong impact on you. What did you learn from it?",
+      "How has the internet changed the way we communicate with each other?",
+      "What measures should governments take to protect the environment?",
+      "Describe a time when you had to work as part of a team. What was your role?",
+      "Do you think artificial intelligence will create more jobs or destroy them? Explain your opinion.",
+      "What is the most important invention of the last hundred years and why?",
+      "Imagine you are planning a community event. What would you organize and for whom?",
+      "How important is it for people to disconnect from technology during holidays?",
+      "Compare online shopping with traditional shopping. What are the pros and cons of each?",
+      "Describe a skill you would like to learn in the future. How would it help you?",
+      "Do you think governments should ban single-use plastics? Give reasons for your answer.",
+      "What role should music and art play in education?",
+      "Talk about a time you faced a cultural difference. How did you handle it?",
+      "If you could travel to any historical period, when would you go and what would you do there?",
+      "How can cities become more environmentally friendly?",
+      "Describe the qualities of a good leader. Do you think these can be taught?",
+      "Some people prefer to live in the same place all their lives. Others move frequently. Which do you prefer?",
+      "How has social media affected personal relationships? Is it positive or negative?",
+      "What are the main causes of stress today, and how can people manage it better?",
+      "If you were given the chance to change one thing about the education system, what would it be?",
+      "Describe a memorable meal you have had. What made it so special?",
+      "Do you think space exploration is worth the cost? Why or why not?",
+      "Compare working from home with working in an office. Which is better for productivity?",
+      "What advice would you give to someone who is learning English?",
+      "How do different generations view work-life balance? Has this changed over time?",
+      "Describe an invention that has made your life easier. How does it help you?",
+      "Do you think it is better to be a specialist or a generalist in today's job market?",
+      "What are the advantages and disadvantages of living in a multicultural society?",
+      "If you could meet any famous person, who would it be and what would you ask them?",
+      "How can we encourage more people to use public transport?",
+      "Describe your morning routine. How does it prepare you for the day?",
+      "Do you believe that face-to-face communication is better than online communication?",
+      "What are the ethical concerns surrounding genetic engineering?",
+      "Talk about a challenge you have overcome. What did you learn from the experience?",
+      "Should wealthy countries do more to help developing nations? Why or why not?",
+      "How does humor help people in difficult situations?",
+      "Describe a place that has a special meaning to you. What makes it important?",
+      "If you could have any superpower, what would it be and how would you use it?",
     ];
 
     // ─── Animated Avatar Orb ─────────────────────────────────────
@@ -271,7 +317,6 @@
       const recognitionRef = useRef(null);
       const mediaRecorderRef = useRef(null);
       const audioChunksRef = useRef([]);
-      const finalBlobRef = useRef(null);
       const audioRef = useRef(null);
       const finalTranscriptRef = useRef('');
 
@@ -331,7 +376,11 @@
       }, [transcript]);
 
       const getAudioBlob = () => {
-        return finalBlobRef.current;
+        if (audioChunksRef.current.length > 0) {
+          const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+          return new Blob(audioChunksRef.current, { type: mimeType });
+        }
+        return null;
       };
 
       const stopRecording = () => {
@@ -403,7 +452,6 @@
         setError('');
         setAudioStatus('recording');
         resetTranscript();
-        finalBlobRef.current = null;
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
@@ -433,8 +481,6 @@
           };
 
           mediaRecorder.onstop = () => {
-            const mimeType = mediaRecorder.mimeType || 'audio/webm';
-            finalBlobRef.current = new Blob(audioChunksRef.current, { type: mimeType });
             stream.getTracks().forEach((track) => track.stop());
           };
 
