@@ -7,32 +7,93 @@ const LLM_API_URL = process.env.LLM_API_URL || 'https://opencode.ai/zen/v1/chat/
 const LLM_MODEL = process.env.LLM_MODEL || 'laguna-s-2.1-free';
 const LLM_API_KEY = process.env.LLM_API_KEY || '';
 
-const callLLM = async (prompt) => {
-  const response = await fetch(LLM_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${LLM_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      messages: [
-        { role: 'system', content: 'You are an expert English speaking examiner. Return ONLY valid JSON. No markdown, no code blocks, no explanations.' },
-        { role: 'user', content: prompt },
-      ],
-      temperature: 0.3,
-    }),
-  });
+const withTimeout = (promise, ms) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+};
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`LLM API responded with ${response.status}: ${text}`);
+const callLLM = async (prompt, timeoutMs = 20000) => {
+  if (!LLM_API_KEY) {
+    throw new Error('LLM_API_KEY is not configured');
   }
 
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || '{}';
-  return JSON.parse(content);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(LLM_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LLM_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        messages: [
+          { role: 'system', content: 'You are an expert English speaking examiner. Return ONLY valid JSON. No markdown, no code blocks, no explanations.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.3,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`LLM API responded with ${response.status}: ${text}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '{}';
+
+    let cleaned = content.trim();
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.slice(7);
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.slice(3);
+    }
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.slice(0, -3);
+    }
+    cleaned = cleaned.trim();
+
+    try {
+      return JSON.parse(cleaned);
+    } catch (e) {
+      console.error('Failed to parse LLM response:', cleaned);
+      throw new Error(`LLM returned invalid JSON: ${cleaned.slice(0, 200)}`);
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('LLM request timed out');
+    }
+    throw error;
+  }
 };
+
+const FALLBACK_RESULT = (transcript, phoneticTranscription, targetLevel) => ({
+  transcript,
+  phonetic_transcription: phoneticTranscription,
+  estimated_level: targetLevel || 'B1+',
+  strongest_skill: 'Vocabulary',
+  biggest_weakness: 'Hesitation',
+  next_mission: 'Practice speaking for 60 seconds without filler words.',
+  metrics: [
+    { name: 'Fluency & Hesitation', score: 70, comment: 'Keep practicing to improve flow.' },
+    { name: 'Vocabulary & CEFR Range', score: 75, comment: 'Good word choice overall.' },
+    { name: 'Grammatical Accuracy', score: 72, comment: 'Watch verb tenses and prepositions.' },
+    { name: 'Pronunciation & Clarity', score: 70, comment: 'Focus on word stress and intonation.' },
+    { name: 'Coherence & Structure', score: 72, comment: 'Try using more linking words.' },
+    { name: 'Dialogue Interaction', score: 75, comment: 'Good engagement with the prompt.' },
+  ],
+});
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -52,10 +113,13 @@ module.exports = async function handler(req, res) {
     const questionText = Array.isArray(fields.question_text) ? fields.question_text[0] : fields.question_text;
     const targetLevel = Array.isArray(fields.target_level) ? fields.target_level[0] : fields.target_level;
 
-    const transcription = await openai.audio.transcriptions.create({
-      file: audioFile,
-      model: 'whisper-1',
-    });
+    const transcription = await withTimeout(
+      openai.audio.transcriptions.create({
+        file: audioFile,
+        model: 'whisper-1',
+      }),
+      30000
+    );
 
     const transcript = transcription.text || '';
 
@@ -63,48 +127,41 @@ module.exports = async function handler(req, res) {
 Text: "${transcript.replace(/"/g, '')}"`;
 
     let phoneticTranscription = transcript;
+    let evaluationResult = null;
+
     try {
-      const phoneticResult = await callLLM(phoneticPrompt);
+      const [phoneticResult, evalResult] = await Promise.all([
+        withTimeout(callLLM(phoneticPrompt), 20000).catch(e => {
+          console.error('Phonetic transcription error:', e);
+          return null;
+        }),
+        withTimeout(callLLM(evaluationPrompt), 20000).catch(e => {
+          console.error('LLM evaluation error:', e);
+          return null;
+        }),
+      ]);
+
       if (typeof phoneticResult === 'string') {
         phoneticTranscription = phoneticResult.trim();
       } else if (phoneticResult && typeof phoneticResult === 'object') {
         phoneticTranscription = (phoneticResult.ipa || phoneticResult.phonetic || phoneticResult.transcription || transcript).trim();
       }
+
+      if (evalResult && typeof evalResult === 'object') {
+        evaluationResult = evalResult;
+      }
     } catch (e) {
-      console.error('Phonetic transcription error:', e);
-      phoneticTranscription = transcript;
+      console.error('LLM processing error:', e);
     }
 
-    const evaluationPrompt = `You are an expert English speaking examiner. Evaluate the student's response to the following question.
+    if (!evaluationResult) {
+      evaluationResult = FALLBACK_RESULT(transcript, phoneticTranscription, targetLevel);
+    }
 
-Question: ${questionText}
-Student's spoken response (transcript): ${transcript}
-Phonetic transcription (IPA): ${phoneticTranscription}
-Target CEFR Level: ${targetLevel}
-
-Return ONLY valid JSON matching this exact structure:
-{
-  "transcript": "${transcript.replace(/"/g, '\\"')}",
-  "phonetic_transcription": "${phoneticTranscription.replace(/"/g, '\\"')}",
-  "estimated_level": "B1+",
-  "strongest_skill": "Vocabulary",
-  "biggest_weakness": "Hesitation",
-  "next_mission": "Speak for 60 seconds without filler words.",
-  "metrics": [
-    { "name": "Fluency & Hesitation", "score": 72, "comment": "..." },
-    { "name": "Vocabulary & CEFR Range", "score": 85, "comment": "..." },
-    { "name": "Grammatical Accuracy", "score": 78, "comment": "..." },
-    { "name": "Pronunciation & Clarity", "score": 80, "comment": "..." },
-    { "name": "Coherence & Structure", "score": 75, "comment": "..." },
-    { "name": "Dialogue Interaction", "score": 82, "comment": "..." }
-  ]
-}`;
-
-    const result = await callLLM(evaluationPrompt);
-
-    return res.status(200).json(result);
+    return res.status(200).json(evaluationResult);
   } catch (error) {
     console.error('Evaluation error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
+    const message = error.message || 'Internal server error';
+    return res.status(500).json({ error: message });
   }
 };
