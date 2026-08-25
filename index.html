@@ -273,6 +273,7 @@
       const audioChunksRef = useRef([]);
       const finalBlobRef = useRef(null);
       const audioRef = useRef(null);
+      const finalTranscriptRef = useRef('');
 
       const speak = async (text) => {
         if (!text) return;
@@ -345,6 +346,11 @@
         setAudioStatus('idle');
       };
 
+      const resetTranscript = () => {
+        finalTranscriptRef.current = '';
+        setTranscript('');
+      };
+
       useEffect(() => {
         if (!isRecording || isMuted) {
           if (recognitionRef.current) {
@@ -366,21 +372,18 @@
         recognition.lang = 'en-US';
 
         recognition.onresult = (event) => {
-          let final = '';
-          let interim = '';
+          let interimTranscript = '';
+
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const t = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-              final += t + ' ';
+              finalTranscriptRef.current += t + ' ';
             } else {
-              interim += t;
+              interimTranscript += t;
             }
           }
-          if (final) {
-            setTranscript(prev => prev + final);
-          } else if (interim) {
-            setTranscript(prev => prev + interim);
-          }
+
+          setTranscript(finalTranscriptRef.current + interimTranscript);
         };
 
         recognition.onerror = (event) => {
@@ -399,6 +402,7 @@
       const startRecording = async () => {
         setError('');
         setAudioStatus('recording');
+        resetTranscript();
         finalBlobRef.current = null;
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -463,7 +467,7 @@
         const next = (promptIndex + 1) % AI_PROMPTS.length;
         setPromptIndex(next);
         setCurrentPrompt(AI_PROMPTS[next]);
-        setTranscript('');
+        resetTranscript();
         setTimeLeft(120);
       };
 
