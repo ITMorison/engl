@@ -5,7 +5,7 @@ const formidable = typeof formidableLib === 'function' ? formidableLib : (formid
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const LLM_API_URL = process.env.LLM_API_URL || 'https://openrouter.ai/api/v1/chat/completions';
 const LLM_MODEL = process.env.LLM_MODEL || 'google/gemma-4-31b-it:free';
-const LLM_API_KEY = process.env.LLM_API_KEY || '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';
+const LLM_API_KEY = process.env.LLM_API_KEY || '';
 
 const withTimeout = (promise, ms) => {
   return Promise.race([
@@ -122,7 +122,8 @@ module.exports = async function handler(req, res) {
     const targetLevel = Array.isArray(fields.target_level) ? fields.target_level[0] : fields.target_level;
 
     let transcript = providedTranscript || '';
-    if (audioFile && !transcript) {
+    const hasTranscript = transcript.trim().length > 0;
+    if (!hasTranscript && audioFile) {
       try {
         const fileBuffer = Buffer.isBuffer(audioFile.data) ? audioFile.data : Buffer.from(audioFile.data || []);
         
@@ -160,10 +161,12 @@ module.exports = async function handler(req, res) {
         transcript = transcriptionData.text || '';
       } catch (e) {
         console.error('Transcription error:', e);
-        if (!providedTranscript) {
+        if (!hasTranscript) {
           return res.status(500).json({ error: `Transcription failed: ${e.message}` });
         }
       }
+    } else if (!hasTranscript) {
+      return res.status(400).json({ error: 'No audio file or transcript provided' });
     }
 
     const phoneticPrompt = `Convert the following English text to IPA (International Phonetic Alphabet) phonemic transcription. Provide ONLY the phoneme string using standard IPA symbols, no explanations, no quotes, no extra text.

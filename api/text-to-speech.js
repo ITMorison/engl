@@ -38,6 +38,12 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     console.error('TTS error:', error);
     const status = error.status || 500;
+    if (status === 429 || status === 401) {
+      return res.status(200).json({ 
+        error: 'TTS quota exceeded or invalid key',
+        fallback: true 
+      });
+    }
     const message = error.message || 'TTS generation failed';
     return res.status(status).json({ error: message });
   }

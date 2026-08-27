@@ -854,8 +854,6 @@
           const formData = new FormData();
           if (audioBlob) {
             formData.append('file', audioBlob, 'audio.webm');
-          } else {
-            formData.append('file', new Blob([''], { type: 'audio/webm' }), 'empty.webm');
           }
           formData.append('question_text', prompt || AI_PROMPTS[0]);
           formData.append('target_level', level);
