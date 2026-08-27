@@ -369,7 +369,7 @@
         if (timeLeft <= 0) {
           if (isRecording) {
             stopRecording();
-            onEnd({ audioBlob: getAudioBlob(), prompt: currentPrompt });
+            onEnd({ audioBlob: getAudioBlob(), prompt: currentPrompt, transcript });
           }
           return;
         }
@@ -509,14 +509,14 @@
         } else {
           stopRecording();
           const blob = getAudioBlob();
-          onEnd({ audioBlob: blob, prompt: currentPrompt });
+          onEnd({ audioBlob: blob, prompt: currentPrompt, transcript });
         }
       };
 
       const handleEndSession = () => {
         stopRecording();
         const blob = getAudioBlob();
-        onEnd({ audioBlob: blob, prompt: currentPrompt });
+        onEnd({ audioBlob: blob, prompt: currentPrompt, transcript });
       };
 
       const handleNextPrompt = () => {
@@ -842,8 +842,8 @@
         setView('live');
       };
 
-      const handleEnd = async ({ audioBlob, prompt }) => {
-        if (!audioBlob) {
+      const handleEnd = async ({ audioBlob, prompt, transcript }) => {
+        if (!audioBlob && !transcript) {
           setError('No audio recorded. Please record your answer before ending.');
           setView('feedback');
           return;
@@ -852,9 +852,16 @@
         setError('');
         try {
           const formData = new FormData();
-          formData.append('file', audioBlob, 'audio.webm');
+          if (audioBlob) {
+            formData.append('file', audioBlob, 'audio.webm');
+          } else {
+            formData.append('file', new Blob([''], { type: 'audio/webm' }), 'empty.webm');
+          }
           formData.append('question_text', prompt || AI_PROMPTS[0]);
           formData.append('target_level', level);
+          if (transcript) {
+            formData.append('transcript', transcript);
+          }
 
           const response = await fetch('/api/evaluate-speech', {
             method: 'POST',

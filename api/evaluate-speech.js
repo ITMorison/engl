@@ -3,16 +3,9 @@ const formidableLib = require('formidable');
 const formidable = typeof formidableLib === 'function' ? formidableLib : (formidableLib.default || formidableLib);
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const LLM_API_URL = process.env.LLM_API_URL || 'https://opencode.ai/zen/v1/chat/completions';
-const LLM_MODEL = process.env.LLM_MODEL || 'laguna-s-2.1-free';
-const LLM_API_KEY = process.env.LLM_API_KEY || '';
-
-const getOpenAI = () => {
-  if (!OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is missing');
-  }
-  return new OpenAI({ apiKey: OPENAI_API_KEY });
-};
+const LLM_API_URL = process.env.LLM_API_URL || 'https://openrouter.ai/api/v1/chat/completions';
+const LLM_MODEL = process.env.LLM_MODEL || 'google/gemma-4-31b-it:free';
+const LLM_API_KEY = process.env.LLM_API_KEY || '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';
 
 const withTimeout = (promise, ms) => {
   return Promise.race([
@@ -37,6 +30,8 @@ const callLLM = async (prompt, timeoutMs = 20000) => {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${LLM_API_KEY}`,
+        'HTTP-Referer': 'https://speakai-examiner.vercel.app',
+        'X-Title': 'SpeakAI Examiner',
       },
       body: JSON.stringify({
         model: LLM_MODEL,
@@ -112,48 +107,64 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'Server misconfigured: OPENAI_API_KEY is missing.' });
   }
 
-  if (!LLM_API_KEY) {
-    console.error('LLM_API_KEY is not configured');
-  }
-
   const form = formidable({ multiples: false, maxFileSize: 25 * 1024 * 1024 });
 
   try {
     const [fields, files] = await form.parse(req);
     const audioFile = files.file?.[0] || files.file;
+    const providedTranscript = Array.isArray(fields.transcript) ? fields.transcript[0] : fields.transcript;
 
-    if (!audioFile) {
-      return res.status(400).json({ error: 'No audio file provided' });
+    if (!audioFile && !providedTranscript) {
+      return res.status(400).json({ error: 'No audio file or transcript provided' });
     }
 
     const questionText = Array.isArray(fields.question_text) ? fields.question_text[0] : fields.question_text;
     const targetLevel = Array.isArray(fields.target_level) ? fields.target_level[0] : fields.target_level;
 
-    const openaiClient = getOpenAI();
+    let transcript = providedTranscript || '';
+    if (audioFile && !transcript) {
+      try {
+        const fileBuffer = Buffer.isBuffer(audioFile.data) ? audioFile.data : Buffer.from(audioFile.data || []);
+        
+        if (fileBuffer.length === 0) {
+          return res.status(400).json({ error: 'Audio file is empty' });
+        }
 
-    let fileBuffer;
-    try {
-      if (audioFile.filepath && require('fs').existsSync(audioFile.filepath)) {
-        fileBuffer = require('fs').readFileSync(audioFile.filepath);
-      } else if (audioFile.data) {
-        fileBuffer = Buffer.isBuffer(audioFile.data) ? audioFile.data : Buffer.from(audioFile.data);
-      } else {
-        return res.status(400).json({ error: 'Cannot read audio file data' });
+        const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+        const prefix = Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${audioFile.originalFilename || 'audio.webm'}"\r\nContent-Type: ${audioFile.mimetype || 'audio/webm'}\r\n\r\n`
+        );
+        const modelPart = Buffer.from(
+          `\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n--${boundary}--\r\n`
+        );
+        const body = Buffer.concat([prefix, fileBuffer, modelPart]);
+
+        const transcription = await withTimeout(
+          fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+              'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            },
+            body,
+          }),
+          30000
+        );
+
+        if (!transcription.ok) {
+          const text = await transcription.text();
+          throw new Error(`Whisper API responded with ${transcription.status}: ${text}`);
+        }
+
+        const transcriptionData = await transcription.json();
+        transcript = transcriptionData.text || '';
+      } catch (e) {
+        console.error('Transcription error:', e);
+        if (!providedTranscript) {
+          return res.status(500).json({ error: `Transcription failed: ${e.message}` });
+        }
       }
-    } catch (err) {
-      console.error('Error reading audio file:', err);
-      return res.status(400).json({ error: 'Cannot read audio file' });
     }
-
-    const transcription = await withTimeout(
-      openaiClient.audio.transcriptions.create({
-        file: fileBuffer,
-        model: 'whisper-1',
-      }),
-      30000
-    );
-
-    const transcript = transcription.text || '';
 
     const phoneticPrompt = `Convert the following English text to IPA (International Phonetic Alphabet) phonemic transcription. Provide ONLY the phoneme string using standard IPA symbols, no explanations, no quotes, no extra text.
 Text: "${transcript.replace(/"/g, '')}"`;
