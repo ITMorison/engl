@@ -333,7 +333,9 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text }),
           });
-          if (!response.ok) return;
+          if (!response.ok) {
+            throw new Error(`TTS endpoint returned ${response.status}`);
+          }
           const blob = await response.blob();
           const url = URL.createObjectURL(blob);
           const audio = new Audio(url);
@@ -342,6 +344,14 @@
           audio.play();
         } catch (err) {
           console.error('TTS playback error:', err);
+          if (!isMuted && 'speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 0.95;
+            utterance.pitch = 1;
+            window.speechSynthesis.speak(utterance);
+          }
         }
       };
 

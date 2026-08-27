@@ -131,9 +131,23 @@ module.exports = async function handler(req, res) {
 
     const openaiClient = getOpenAI();
 
+    let fileBuffer;
+    try {
+      if (audioFile.filepath && require('fs').existsSync(audioFile.filepath)) {
+        fileBuffer = require('fs').readFileSync(audioFile.filepath);
+      } else if (audioFile.data) {
+        fileBuffer = Buffer.isBuffer(audioFile.data) ? audioFile.data : Buffer.from(audioFile.data);
+      } else {
+        return res.status(400).json({ error: 'Cannot read audio file data' });
+      }
+    } catch (err) {
+      console.error('Error reading audio file:', err);
+      return res.status(400).json({ error: 'Cannot read audio file' });
+    }
+
     const transcription = await withTimeout(
       openaiClient.audio.transcriptions.create({
-        file: audioFile,
+        file: fileBuffer,
         model: 'whisper-1',
       }),
       30000
@@ -143,6 +157,30 @@ module.exports = async function handler(req, res) {
 
     const phoneticPrompt = `Convert the following English text to IPA (International Phonetic Alphabet) phonemic transcription. Provide ONLY the phoneme string using standard IPA symbols, no explanations, no quotes, no extra text.
 Text: "${transcript.replace(/"/g, '')}"`;
+
+    const evaluationPrompt = `You are an expert English speaking examiner. Evaluate the student's response to the following question.
+
+Question: ${questionText}
+Student's spoken response (transcript): ${transcript}
+Target CEFR Level: ${targetLevel}
+
+Return ONLY valid JSON matching this exact structure:
+{
+  "transcript": "${transcript.replace(/"/g, '\\"')}",
+  "phonetic_transcription": "TBD",
+  "estimated_level": "B1+",
+  "strongest_skill": "Vocabulary",
+  "biggest_weakness": "Hesitation",
+  "next_mission": "Speak for 60 seconds without filler words.",
+  "metrics": [
+    { "name": "Fluency & Hesitation", "score": 72, "comment": "..." },
+    { "name": "Vocabulary & CEFR Range", "score": 85, "comment": "..." },
+    { "name": "Grammatical Accuracy", "score": 78, "comment": "..." },
+    { "name": "Pronunciation & Clarity", "score": 80, "comment": "..." },
+    { "name": "Coherence & Structure", "score": 75, "comment": "..." },
+    { "name": "Dialogue Interaction", "score": 82, "comment": "..." }
+  ]
+}`;
 
     let phoneticTranscription = transcript;
     let evaluationResult = null;
@@ -166,7 +204,10 @@ Text: "${transcript.replace(/"/g, '')}"`;
       }
 
       if (evalResult && typeof evalResult === 'object') {
-        evaluationResult = evalResult;
+        evaluationResult = {
+          ...evalResult,
+          phonetic_transcription: phoneticTranscription,
+        };
       }
     } catch (e) {
       console.error('LLM processing error:', e);
