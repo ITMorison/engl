@@ -1,11 +1,18 @@
 const { OpenAI } = require('openai');
-const formidable = require('formidable');
+const formidableLib = require('formidable');
+const formidable = typeof formidableLib === 'function' ? formidableLib : (formidableLib.default || formidableLib);
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const LLM_API_URL = process.env.LLM_API_URL || 'https://opencode.ai/zen/v1/chat/completions';
 const LLM_MODEL = process.env.LLM_MODEL || 'laguna-s-2.1-free';
 const LLM_API_KEY = process.env.LLM_API_KEY || '';
+
+const getOpenAI = () => {
+  if (!OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is missing');
+  }
+  return new OpenAI({ apiKey: OPENAI_API_KEY });
+};
 
 const withTimeout = (promise, ms) => {
   return Promise.race([
@@ -100,6 +107,15 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  if (!OPENAI_API_KEY) {
+    console.error('OPENAI_API_KEY is not configured');
+    return res.status(500).json({ error: 'Server misconfigured: OPENAI_API_KEY is missing.' });
+  }
+
+  if (!LLM_API_KEY) {
+    console.error('LLM_API_KEY is not configured');
+  }
+
   const form = formidable({ multiples: false, maxFileSize: 25 * 1024 * 1024 });
 
   try {
@@ -113,8 +129,10 @@ module.exports = async function handler(req, res) {
     const questionText = Array.isArray(fields.question_text) ? fields.question_text[0] : fields.question_text;
     const targetLevel = Array.isArray(fields.target_level) ? fields.target_level[0] : fields.target_level;
 
+    const openaiClient = getOpenAI();
+
     const transcription = await withTimeout(
-      openai.audio.transcriptions.create({
+      openaiClient.audio.transcriptions.create({
         file: audioFile,
         model: 'whisper-1',
       }),

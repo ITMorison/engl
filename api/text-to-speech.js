@@ -1,5 +1,4 @@
 const OpenAI = require('openai');
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -17,7 +16,13 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Text is required' });
   }
 
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Server misconfigured: OPENAI_API_KEY is missing.' });
+  }
+
   try {
+    const openai = new OpenAI({ apiKey });
     const response = await openai.audio.speech.create({
       model: 'tts-1-hd',
       voice: 'nova',
@@ -32,6 +37,8 @@ module.exports = async function handler(req, res) {
     res.send(buffer);
   } catch (error) {
     console.error('TTS error:', error);
-    return res.status(500).json({ error: error.message || 'TTS generation failed' });
+    const status = error.status || 500;
+    const message = error.message || 'TTS generation failed';
+    return res.status(status).json({ error: message });
   }
 };
